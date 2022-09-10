@@ -25,9 +25,10 @@ class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent)
         self.title = 'Template Creator'
-        self.geometry = (1280, 480, 670, 480)
-        # --------------------------------------=
+        self.geometry = (1280, 480, 670, 380)
+        # ---------------------------------------
         self.init_header()
+        # ---------------------------------------
 
     def init_header(self):
         self.setWindowTitle(self.title)
@@ -313,36 +314,60 @@ class BoundingBox(QThread):
 class RecordWindow(QWidget):
     def __init__(self, parent):
         super(RecordWindow, self).__init__(parent)
-        self.layout = QVBoxLayout()
-        self.hlayout = QHBoxLayout()
+        self.container = QHBoxLayout(self)
+        self.container.setContentsMargins(0, 0, 0, 0)
+        self.container.setSpacing(0)
 
-        self.filename = QLineEdit("output.mp4")
-        self.filename.deselect()
-        self.hlayout.addWidget(self.filename, stretch=0)
-
+        self.splitter = QSplitter(Qt.Horizontal)
         self.is_recording = False
 
-        self.feed_label = QLabel()
-        self.layout.addWidget(self.feed_label, alignment=Qt.AlignHCenter)
+        self.side_frame = QFrame(self)
+        self.side_frame.setStyleSheet('QFrame{background-color: rgb(200, 200, 200);}')
+        self.side_menu = QGridLayout(self.side_frame)
+        self.side_menu.setAlignment(Qt.AlignTop)
 
-        self.record_btn = QPushButton("Start Recording")
-        self.record_btn.clicked.connect(self.toggle_record)
-        self.record_btn.setDisabled(True)
-        self.hlayout.addWidget(self.record_btn, stretch=1)
+        self.main_frame = QFrame(self)
+        self.main_menu = QVBoxLayout(self.main_frame)
+        self.main_menu.setContentsMargins(0, 0, 0, 0)
+        self.main_menu.setSpacing(0)
 
-        self.choose_directory_btn = QPushButton('C:\\')
-        self.choose_directory_btn.clicked.connect(self.select_dir)
+        # row 0
+        self.file_txt = QLabel('File Name:')
+        self.filename = QLineEdit('output.mp4')
 
-        self.start_btn = QPushButton("Start")
+        # row 1
+        self.folder_txt = QLabel('Folder Path:')
+        self.folder = QPushButton('C:/')
+        self.folder.clicked.connect(self.select_dir)
+
+        # row  2
+        self.start_btn = QPushButton('Start Feed')
         self.start_btn.clicked.connect(self.start)
-        self.hlayout.addWidget(self.start_btn, stretch=1)
 
-        self.layout.addLayout(self.hlayout)
-        self.layout.addWidget(self.choose_directory_btn)
+        self.record_btn = QPushButton('Start Recording')
+        self.record_btn.clicked.connect(self.toggle_record)
 
+        # main window
+        self.feed_label = QLabel(self.main_frame)
         self.feed = LiveFeed(self)
 
-        self.setLayout(self.layout)
+        self.main_menu.addWidget(self.feed_label)
+
+        # add widgets
+        self.side_menu.addWidget(self.file_txt, 0, 0)
+        self.side_menu.addWidget(self.filename, 0, 1)
+        self.side_menu.addWidget(self.folder_txt, 1, 0)
+        self.side_menu.addWidget(self. folder, 1, 1)
+        self.side_menu.addWidget(self.start_btn, 2, 0)
+        self.side_menu.addWidget(self.record_btn, 2, 1)
+
+        # final
+        self.splitter.addWidget(self.side_frame)
+        self.splitter.addWidget(self.main_frame)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([150, 150])
+
+        self.container.addWidget(self.splitter)
 
     def __del__(self):
         self.cancel()
@@ -365,7 +390,7 @@ class RecordWindow(QWidget):
 
     def select_dir(self):
         input_dir = QFileDialog.getExistingDirectory(None, 'Select a folder:', expanduser("~"))
-        self.choose_directory_btn.setText(str(input_dir))
+        self.folder.setText(str(input_dir))
         del self.feed
         self.feed = LiveFeed(self)
 
@@ -424,7 +449,7 @@ class LiveFeed(QThread):
         super().__init__(parent)
         try:
             self.cap = cv2.VideoCapture(-1)
-            self.path = parent.choose_directory_btn.text()
+            self.path = parent.folder.text()
             self.filename = parent.filename.text()
             self.is_active = False
             self.font = cv2.FONT_HERSHEY_SIMPLEX
