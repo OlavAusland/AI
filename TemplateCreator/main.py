@@ -106,7 +106,7 @@ class TemplateWindow(QWidget):
         self.side_menu.setAlignment(Qt.AlignTop)
 
         self.main_frame = QFrame(self)
-        self.main_frame.setStyleSheet('QFrame{background-color:rgb(195, 130, 127);s}')
+        self.main_frame.setStyleSheet('QFrame{background-color:rgb(195, 130, 127);}')
         self.main_menu = QVBoxLayout(self.main_frame)
         self.main_menu.setContentsMargins(0, 0, 0, 0)
         self.main_menu.setSpacing(0)
@@ -217,7 +217,7 @@ class BoundingBoxWindow(QWidget):
         self.preview = QLabel(self.main_frame)
         self.bounding_box_preview = QLabel(self.main_frame)
 
-        # self.preview.mousePressEvent = self.display_mouse
+        # self.preview.mouseMoveEvent = self.set_mouse_position
         self.preview.mousePressEvent = self.set_start_position
         self.preview.mouseMoveEvent = self.set_end_position
 
@@ -272,6 +272,11 @@ class BoundingBoxWindow(QWidget):
     def __del__(self):
         self.feed.stop()
 
+    def set_mouse_position(self, event):
+        self.feed.mouse = [event.x(), event.y()]
+        print('working')
+        self.feed.update = True
+
     def set_start_position(self, event):
         self.feed.p1 = [max(event.x(), 0), max(event.y(), 0)]
         # self.point_1.setText(f'Point A: ({event.x()}, {event.y()})')
@@ -312,15 +317,6 @@ class BoundingBoxWindow(QWidget):
         self.output_dir.setText(input_dir.split('/')[-1])
         self.output_dir.setToolTip(input_dir)
 
-    def display_mouse(self, event):
-        if self.feed is None:
-            return
-        if event.button() == QtCore.Qt.LeftButton:
-            self.feed.p1 = [event.x(), event.y()]
-        else:
-            self.feed.p2 = [event.x(), event.y()]
-        self.feed.update = True
-
 
 class BoundingBox(QThread):
     ImageUpdate = pyqtSignal(QImage)
@@ -331,7 +327,7 @@ class BoundingBox(QThread):
         self.image_file = parent.file
         self.p1: list = [0, 0]
         self.p2: list = [0, 0]
-        self.mouse: tuple = (0, 0)
+        self.mouse: list = [0, 0]
         self.shape: tuple = (0, 0)
         self.image = None
         self.update = False
@@ -356,10 +352,11 @@ class BoundingBox(QThread):
                     image = cv2.line(image, point, (point[0], 0), color=[255,255,255])
                     image = cv2.line(image, point, (0, point[1]), color=[255,255,255])
                 """
+                image = cv2.line(img=image, pt1=[self.mouse[0], 0], pt2=[self.mouse[0], self.shape[0]], color=[255, 255, 255])
+                image = cv2.line(img=image, pt1=[0, self.mouse[1]], pt2=[self.shape[1], self.mouse[1]], color=[255, 255, 255])
             # MASK
 
             # MASK END
-
 
             qt_image = QImage(image.data, image.shape[1], image.shape[0],
                               QImage.Format_RGB888)
@@ -383,6 +380,7 @@ class RecordWindow(QWidget):
 
         self.side_frame = QFrame(self)
         self.side_frame.setStyleSheet(read_qss('./style/default.qss'))
+
         self.side_menu = QGridLayout(self.side_frame)
         self.side_menu.setAlignment(Qt.AlignTop)
 
@@ -391,9 +389,14 @@ class RecordWindow(QWidget):
         self.main_menu.setContentsMargins(0, 0, 0, 0)
         self.main_menu.setSpacing(0)
 
+        self.info_menu = QGridLayout(self.side_frame)
+        self.info_menu.setAlignment(Qt.AlignBottom)
+        self.info_menu.addWidget(QPushButton('Test'))
+
         # row 0
         self.file_txt = QLabel('File Name:')
         self.filename = QLineEdit('output.mp4')
+        self.filename.textChanged[str].connect(self.handle_footage)
 
         # row 1
         self.folder_txt = QLabel('Folder Path:')
@@ -407,6 +410,12 @@ class RecordWindow(QWidget):
 
         self.record_btn = QPushButton('Start Recording')
         self.record_btn.clicked.connect(self.toggle_record)
+        self.record_btn.setDisabled(True)
+
+        # row 3
+        self.snapshot_btn = QPushButton('Take Snapshot')
+        self.snapshot_btn.setDisabled(True)
+        self.snapshot_btn.clicked.connect(self.take_snapshot)
 
         # main window
         self.feed_label = QLabel(self.main_frame)
@@ -421,6 +430,7 @@ class RecordWindow(QWidget):
         self.side_menu.addWidget(self.folder, 1, 1)
         self.side_menu.addWidget(self.start_btn, 2, 0)
         self.side_menu.addWidget(self.record_btn, 2, 1)
+        self.side_menu.addWidget(self.snapshot_btn, 3, 0, 1, 2)
 
         # final
         self.splitter.addWidget(self.side_frame)
@@ -433,6 +443,19 @@ class RecordWindow(QWidget):
     def __del__(self):
         self.cancel()
 
+    def handle_footage(self, event):
+        if not self.feed.cap.isOpened():
+            return
+        filetype: str = event.split('.')[-1]
+        if filetype in ['mp4']:
+            self.record_btn.setDisabled(False)
+        else:
+            self.record_btn.setDisabled(True)
+
+    def take_snapshot(self):
+        print(f'{self.folder.toolTip()}/{self.filename.text().split(".")[0]}.png')
+        cv2.imwrite(f'{self.folder.toolTip()}/{self.filename.text()}', img=self.feed.frame)
+
     def get_mouse_pos(self, event):
         position: tuple = (event.pos().x(), event.pos().y())
         self.feed.position = position
@@ -444,6 +467,7 @@ class RecordWindow(QWidget):
 
     def start(self):
         self.record_btn.setDisabled(False)
+        self.snapshot_btn.setDisabled(False)
         self.start_btn.setText('Stop')
         self.start_btn.clicked.connect(self.cancel)
         self.feed.start()
@@ -472,6 +496,7 @@ class RecordWindow(QWidget):
         self.start_btn.setText('Start')
         self.start_btn.clicked.connect(self.start)
         self.record_btn.setDisabled(True)
+        self.snapshot_btn.setDisabled(True)
         self.feed.stop()
 
 
@@ -510,7 +535,7 @@ class LiveFeed(QThread):
     def __init__(self, parent):
         super().__init__(parent)
         try:
-            self.cap = cv2.VideoCapture(-1)
+            self.cap = cv2.VideoCapture(0)
             self.path = parent.folder.toolTip()
             self.filename = parent.filename.text()
             self.is_active = False
@@ -519,6 +544,8 @@ class LiveFeed(QThread):
             # bounding box
             self.position: tuple = (20, 20)
             self.box_size: tuple = (60, 60)
+
+            self.frame: np.array = None
 
         except Exception as error:
             print(error)
@@ -530,16 +557,16 @@ class LiveFeed(QThread):
     def run(self):
         self.is_active = True
 
-        cap = cv2.VideoCapture(0)
-        w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-        h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        self.cap = cv2.VideoCapture(0)
+        w = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        h = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         fourcc = cv2.VideoWriter_fourcc(*'DIVX')
         out = cv2.VideoWriter(f'{self.path}/{self.filename}', fourcc, 30.0, (int(w), int(h)))
-        if not cap.isOpened(): return
+        if not self.cap.isOpened(): return
         while self.is_active:
-            ret, frame = cap.read()
+            ret, self.frame = self.cap.read()
             if ret:
-                image = cv2.flip(frame, 1)
+                image = cv2.flip(self.frame, 1)
 
                 if self.parent().is_recording:
                     out.write(image)
@@ -558,7 +585,7 @@ class LiveFeed(QThread):
         empty = cv2.copyMakeBorder(empty, 4, 4, 4, 4, cv2.BORDER_CONSTANT, None, value=[150, 150, 150])
         self.ImageUpdate.emit(QImage(empty.data, empty.shape[1], empty.shape[0],
                                      QImage.Format_RGB888).scaled(640, 480, Qt.KeepAspectRatio))
-        cap.release()
+        self.cap.release()
         out.release()
 
     def stop(self):
