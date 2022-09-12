@@ -7,14 +7,19 @@ np.set_printoptions(threshold=sys.maxsize)
 num_classes = 10
 input_shape = (28, 28, 1)
 (train_data, train_labels), (test_data, test_labels) = keras.datasets.mnist.load_data()
+print(test_labels)
 # SCALE DATA BETWEEN 0 & 1
 train_data = train_data.astype('float32') / 255.0
 test_data = test_data.astype('float32') / 255.0
 
+print(type(train_data))
+print(train_data.shape)
 train_data = np.expand_dims(train_data, -1)
 test_data = np.expand_dims(test_data, -1)
 
 train_labels = keras.utils.to_categorical(train_labels, num_classes)
+
+
 test_labels = keras.utils.to_categorical(test_labels, num_classes)
 
 # CREATE THE MODEL

@@ -9,6 +9,8 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+ML/Playground/face-detect-data
+ML/Playground/hand-gesture-data
 develop-eggs/
 dist/
 downloads/

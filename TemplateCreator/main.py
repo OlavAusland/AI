@@ -15,10 +15,16 @@ import urllib.request
 import copy as cp
 from scipy.spatial.distance import euclidean
 import math
+import imghdr
+
+
+def read_qss(filepath: str):
+    with open(filepath, 'r') as style:
+        return style.read()
 
 
 def dist(a: tuple, b: tuple) -> float:
-    return math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
+    return math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
 
 
 class MainWindow(QMainWindow):
@@ -87,7 +93,7 @@ class MainWindow(QMainWindow):
 
 class TemplateWindow(QWidget):
     def __init__(self, parent: MainWindow):
-        super(TemplateWindow, self).__init__()
+        super(TemplateWindow, self).__init__(parent)
         self.container = QHBoxLayout(self)
         self.container.setContentsMargins(0, 0, 0, 0)
         self.container.setSpacing(0)
@@ -95,11 +101,12 @@ class TemplateWindow(QWidget):
         self.splitter = QSplitter(Qt.Horizontal)
 
         self.side_frame = QFrame(self)
-        self.side_frame.setStyleSheet('QFrame{background-color: rgb(200, 200, 200);}')
+        self.side_frame.setStyleSheet(read_qss('./style/template.qss'))
         self.side_menu = QGridLayout(self.side_frame)
         self.side_menu.setAlignment(Qt.AlignTop)
 
         self.main_frame = QFrame(self)
+        self.main_frame.setStyleSheet('QFrame{background-color:rgb(195, 130, 127);s}')
         self.main_menu = QVBoxLayout(self.main_frame)
         self.main_menu.setContentsMargins(0, 0, 0, 0)
         self.main_menu.setSpacing(0)
@@ -116,6 +123,7 @@ class TemplateWindow(QWidget):
         self.input_text = QLabel('Input File:')
         self.file = QPushButton('undefined')
         self.file.clicked.connect(self.select_file)
+        self.file.setShortcut('Ctrl+I')
 
         # - row 2
 
@@ -123,6 +131,7 @@ class TemplateWindow(QWidget):
         self.output_text = QLabel('Output Folder:')
         self.out_folder = QPushButton('C:\\')
         self.out_folder.clicked.connect(self.select_folder)
+        self.out_folder.setShortcut('Ctrl+O')
 
         # row 3
 
@@ -154,12 +163,11 @@ class TemplateWindow(QWidget):
         self.main_menu.addWidget(self.preview)
         self.main_menu.addWidget(self.progress)
 
-
-        #final
+        # final
         self.splitter.addWidget(self.side_frame)
         self.splitter.addWidget(self.main_frame)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([150, 150])
+        self.splitter.setSizes([175, 175])
 
         self.container.addWidget(self.splitter)
 
@@ -180,6 +188,7 @@ class TemplateWindow(QWidget):
     def select_folder(self):
         out_dir = QFileDialog.getExistingDirectory(None, 'Select a folder:', expanduser("~"))
         self.folder_txt = out_dir
+        self.out_folder.setToolTip(out_dir)
         self.out_folder.setText(str(out_dir.split('/')[-1]))
 
     def write(self):
@@ -197,7 +206,7 @@ class BoundingBoxWindow(QWidget):
 
         # side frame
         self.side_frame = QFrame(self)
-        self.side_frame.setStyleSheet('QFrame{background-color:rgb(200, 200, 200);}')
+        self.side_frame.setStyleSheet(read_qss('./style/default.qss'))
         self.side_menu = QGridLayout(self.side_frame)
         self.side_menu.setAlignment(Qt.AlignTop)
 
@@ -206,20 +215,35 @@ class BoundingBoxWindow(QWidget):
 
         # main menu
         self.preview = QLabel(self.main_frame)
-        self.preview.mousePressEvent = self.display_mouse
+        self.bounding_box_preview = QLabel(self.main_frame)
+
+        # self.preview.mousePressEvent = self.display_mouse
+        self.preview.mousePressEvent = self.set_start_position
+        self.preview.mouseMoveEvent = self.set_end_position
 
         # side menu
         self.file_text = QLabel('Video File:')
         self.file = QPushButton('undefined')
         self.file.clicked.connect(self.select_file)
+        self.file.setShortcut('Ctrl+F')
 
         self.output_text = QLabel('Output File:')
         self.output_dir = QPushButton('C:/')
         self.output_dir.clicked.connect(self.select_dir)
+        self.output_dir.setShortcut('Ctrl+O')
 
         self.write_btn = QPushButton('write')
         self.prev_btn = QPushButton('previous')
         self.next_btn = QPushButton('next')
+
+        self.info_divider = QLabel('INFO:')
+        self.info_divider.setStyleSheet('border-right-width:0;border-bottom-width:2px;border-style:solid;')
+
+        # INFO
+        self.point_1 = QLabel('Point A: (0, 0)')
+        self.point_1.setStyleSheet('background-color:rgba(255, 0, 0, 0.25);border-width:0;')
+        self.point_2 = QLabel('Point B: (0, 0)')
+        self.point_2.setStyleSheet('background-color:rgba(255, 0, 0, 0.25);border-width:0;')
 
         self.side_menu.addWidget(self.file_text, 0, 0)
         self.side_menu.addWidget(self.file, 0, 1)
@@ -228,6 +252,12 @@ class BoundingBoxWindow(QWidget):
         self.side_menu.addWidget(self.write_btn, 2, 0, 1, 0)
         self.side_menu.addWidget(self.prev_btn, 3, 0)
         self.side_menu.addWidget(self.next_btn, 3, 1)
+
+        # INFO - Widgets
+        self.side_menu.addWidget(self.info_divider, 4, 0, 1, 2)
+        # self.side_menu.addWidget(self.point_1, 5, 0)
+        # self.side_menu.addWidget(self.point_2, 6, 0)
+        # self.side_menu.addWidget()
 
         self.splitter.addWidget(self.side_frame)
         self.splitter.addWidget(self.preview)
@@ -242,6 +272,16 @@ class BoundingBoxWindow(QWidget):
     def __del__(self):
         self.feed.stop()
 
+    def set_start_position(self, event):
+        self.feed.p1 = [max(event.x(), 0), max(event.y(), 0)]
+        # self.point_1.setText(f'Point A: ({event.x()}, {event.y()})')
+        self.feed.update = True
+
+    def set_end_position(self, event):
+        self.feed.p2 = [min(max(event.x(), 0), self.feed.shape[1]), min(max(event.y(), 0), self.feed.shape[0])]
+        # self.point_2.setText(f'Point B: ({event.x()}, {event.y()})')
+        self.feed.update = True
+
     def start(self):
         self.feed.start()
         self.feed.ImageUpdate.connect(self.update_image)
@@ -251,9 +291,12 @@ class BoundingBoxWindow(QWidget):
 
     def select_file(self):
         file_dir = QFileDialog.getOpenFileName(self, 'Select File', 'C:\\', "Image files (*.png)")
+        if file_dir[0] == '': return
         self.file.setText(file_dir[0].split('/')[-1])
         self.file.setToolTip(file_dir[0])
         self.feed.image = cv2.imread(file_dir[0])
+        self.feed.image = cv2.cvtColor(self.feed.image, cv2.COLOR_BGR2RGB)
+        self.feed.shape = self.feed.image.shape
         self.start()
         try:
             image = cv2.imread(file_dir[0])
@@ -273,9 +316,9 @@ class BoundingBoxWindow(QWidget):
         if self.feed is None:
             return
         if event.button() == QtCore.Qt.LeftButton:
-            self.feed.p1 = (event.x(), event.y())
+            self.feed.p1 = [event.x(), event.y()]
         else:
-            self.feed.p2 = (event.x(), event.y())
+            self.feed.p2 = [event.x(), event.y()]
         self.feed.update = True
 
 
@@ -286,10 +329,13 @@ class BoundingBox(QThread):
         super().__init__(parent)
         self.is_active = False
         self.image_file = parent.file
-        self.p1: tuple = (0, 0)
-        self.p2: tuple = (0, 0)
+        self.p1: list = [0, 0]
+        self.p2: list = [0, 0]
+        self.mouse: tuple = (0, 0)
+        self.shape: tuple = (0, 0)
         self.image = None
         self.update = False
+        self.font = cv2.FONT_HERSHEY_SIMPLEX
 
     def run(self):
         self.is_active = True
@@ -297,10 +343,24 @@ class BoundingBox(QThread):
         while self.is_active:
             if not self.update: continue
             image = cv2.copyTo(self.image, None, image)
-            image = cv2.rectangle(image, self.p1, self.p2, color=[0, 0, 255], thickness=2)
+            image = cv2.rectangle(image, self.p1, self.p2, color=[255, 0, 0], thickness=2)
             for point in [self.p1, self.p2]:
+                image = cv2.putText(img=image, text=f'({point[0]},{point[1]})', org=(point[0], point[1] + 20),
+                                    fontFace=self.font, fontScale=0.5, thickness=1, color=[255, 255, 255])
                 image = cv2.circle(image, point, radius=3, color=[0, 255, 0], thickness=3)
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                """
+                if point is self.p1:
+                    image = cv2.line(image, point, (point[0], self.shape[0]), color=[255,255,255])
+                    image = cv2.line(image, point, (self.shape[1], point[1]), color=[255,255,255])
+                else:
+                    image = cv2.line(image, point, (point[0], 0), color=[255,255,255])
+                    image = cv2.line(image, point, (0, point[1]), color=[255,255,255])
+                """
+            # MASK
+
+            # MASK END
+
+
             qt_image = QImage(image.data, image.shape[1], image.shape[0],
                               QImage.Format_RGB888)
             Pic = qt_image.scaled(640, 480, Qt.KeepAspectRatio)
@@ -322,7 +382,7 @@ class RecordWindow(QWidget):
         self.is_recording = False
 
         self.side_frame = QFrame(self)
-        self.side_frame.setStyleSheet('QFrame{background-color: rgb(200, 200, 200);}')
+        self.side_frame.setStyleSheet(read_qss('./style/default.qss'))
         self.side_menu = QGridLayout(self.side_frame)
         self.side_menu.setAlignment(Qt.AlignTop)
 
@@ -339,6 +399,7 @@ class RecordWindow(QWidget):
         self.folder_txt = QLabel('Folder Path:')
         self.folder = QPushButton('C:/')
         self.folder.clicked.connect(self.select_dir)
+        self.folder.setShortcut('Ctrl+O')
 
         # row  2
         self.start_btn = QPushButton('Start Feed')
@@ -357,7 +418,7 @@ class RecordWindow(QWidget):
         self.side_menu.addWidget(self.file_txt, 0, 0)
         self.side_menu.addWidget(self.filename, 0, 1)
         self.side_menu.addWidget(self.folder_txt, 1, 0)
-        self.side_menu.addWidget(self. folder, 1, 1)
+        self.side_menu.addWidget(self.folder, 1, 1)
         self.side_menu.addWidget(self.start_btn, 2, 0)
         self.side_menu.addWidget(self.record_btn, 2, 1)
 
@@ -365,7 +426,7 @@ class RecordWindow(QWidget):
         self.splitter.addWidget(self.side_frame)
         self.splitter.addWidget(self.main_frame)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([150, 150])
+        self.splitter.setSizes([175, 175])
 
         self.container.addWidget(self.splitter)
 
@@ -390,9 +451,11 @@ class RecordWindow(QWidget):
 
     def select_dir(self):
         input_dir = QFileDialog.getExistingDirectory(None, 'Select a folder:', expanduser("~"))
-        self.folder.setText(str(input_dir))
+        self.folder.setText(str(input_dir).split('/')[-1])
+        self.folder.setToolTip(str(input_dir))
         del self.feed
         self.feed = LiveFeed(self)
+        self.feed.path = input_dir
 
     def toggle_record(self):
         self.is_recording = not self.is_recording
@@ -430,13 +493,12 @@ class VideoExtractor(QThread):
             ret, frame = self.cap.read()
             if ret:
                 image = cv2.flip(frame, 1)
-                print("writing")
                 cv2.imwrite(f'{self.path}/{self.category}_{self.idx}.png', image)
             else:
                 self.is_active = False
-                print("still inside")
             self.idx += 1
         self.cap.release()
+        print('[INFO]: Finished!')
 
     def stop(self):
         self.is_active = False
@@ -449,7 +511,7 @@ class LiveFeed(QThread):
         super().__init__(parent)
         try:
             self.cap = cv2.VideoCapture(-1)
-            self.path = parent.folder.text()
+            self.path = parent.folder.toolTip()
             self.filename = parent.filename.text()
             self.is_active = False
             self.font = cv2.FONT_HERSHEY_SIMPLEX
@@ -472,16 +534,14 @@ class LiveFeed(QThread):
         w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         fourcc = cv2.VideoWriter_fourcc(*'DIVX')
-        out = cv2.VideoWriter(f'{self.path}/{self.filename}', fourcc, 20.0, (int(w), int(h)))
+        out = cv2.VideoWriter(f'{self.path}/{self.filename}', fourcc, 30.0, (int(w), int(h)))
         if not cap.isOpened(): return
         while self.is_active:
-            print(self.position)
             ret, frame = cap.read()
             if ret:
                 image = cv2.flip(frame, 1)
 
                 if self.parent().is_recording:
-                    print("recording...")
                     out.write(image)
                     image = cv2.putText(image, "RECORDING", color=[0, 0, 255], fontScale=1, thickness=2,
                                         fontFace=self.font, org=(0, 25))
