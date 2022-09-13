@@ -1,5 +1,6 @@
 import sys
 from os.path import expanduser
+import faulthandler
 
 import numpy
 from PyQt5 import QtCore, Qt
@@ -16,6 +17,7 @@ import copy as cp
 from scipy.spatial.distance import euclidean
 import math
 import imghdr
+import keyboard
 
 
 def read_qss(filepath: str):
@@ -25,6 +27,18 @@ def read_qss(filepath: str):
 
 def dist(a: tuple, b: tuple) -> float:
     return math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
+
+
+def is_video_file(path: str):
+    try:
+        name = path.split('/')[-1]
+        extension = name.split('.')[-1]
+        if extension in ['mp4', 'mkv']:
+            return 1
+        return 0
+    except Exception as error:
+        print(error)
+        return -1
 
 
 class MainWindow(QMainWindow):
@@ -127,9 +141,8 @@ class TemplateWindow(QWidget):
 
         # - row 2
 
-        self.folder_txt: str = 'C:/'
         self.output_text = QLabel('Output Folder:')
-        self.out_folder = QPushButton('C:\\')
+        self.out_folder = QPushButton(expanduser('~').split('/')[-1])
         self.out_folder.clicked.connect(self.select_folder)
         self.out_folder.setShortcut('Ctrl+O')
 
@@ -172,7 +185,7 @@ class TemplateWindow(QWidget):
         self.container.addWidget(self.splitter)
 
     def select_file(self):
-        file_dir = QFileDialog.getOpenFileName(self, 'Select File', 'C:\\', "Image files (*.mp4)")
+        file_dir = QFileDialog.getOpenFileName(self, 'Select File', expanduser('~'), "Image files (*.mp4)")
         self.file.setText(file_dir[0].split('/')[-1])
         self.file.setToolTip(file_dir[0])
         self.video = cv2.VideoCapture(file_dir[0])
@@ -187,7 +200,6 @@ class TemplateWindow(QWidget):
 
     def select_folder(self):
         out_dir = QFileDialog.getExistingDirectory(None, 'Select a folder:', expanduser("~"))
-        self.folder_txt = out_dir
         self.out_folder.setToolTip(out_dir)
         self.out_folder.setText(str(out_dir.split('/')[-1]))
 
@@ -217,7 +229,6 @@ class BoundingBoxWindow(QWidget):
         self.preview = QLabel(self.main_frame)
         self.bounding_box_preview = QLabel(self.main_frame)
 
-        # self.preview.mouseMoveEvent = self.set_mouse_position
         self.preview.mousePressEvent = self.set_start_position
         self.preview.mouseMoveEvent = self.set_end_position
 
@@ -228,13 +239,17 @@ class BoundingBoxWindow(QWidget):
         self.file.setShortcut('Ctrl+F')
 
         self.output_text = QLabel('Output File:')
-        self.output_dir = QPushButton('C:/')
+        self.output_dir = QPushButton(expanduser('~').split('/')[-1])
         self.output_dir.clicked.connect(self.select_dir)
         self.output_dir.setShortcut('Ctrl+O')
 
         self.write_btn = QPushButton('write')
         self.prev_btn = QPushButton('previous')
         self.next_btn = QPushButton('next')
+        self.next_btn.clicked.connect(lambda: self.feed.next_frame())
+        # progress
+        self.progress = QProgressBar()
+        self.progress.setValue(0)
 
         self.info_divider = QLabel('INFO:')
         self.info_divider.setStyleSheet('border-right-width:0;border-bottom-width:2px;border-style:solid;')
@@ -249,9 +264,10 @@ class BoundingBoxWindow(QWidget):
         self.side_menu.addWidget(self.file, 0, 1)
         self.side_menu.addWidget(self.output_text, 1, 0)
         self.side_menu.addWidget(self.output_dir, 1, 1)
-        self.side_menu.addWidget(self.write_btn, 2, 0, 1, 0)
-        self.side_menu.addWidget(self.prev_btn, 3, 0)
-        self.side_menu.addWidget(self.next_btn, 3, 1)
+        self.side_menu.addWidget(self.write_btn, 2, 0)
+        # self.side_menu.addWidget(self.prev_btn, 3, 0)
+        self.side_menu.addWidget(self.next_btn, 2, 1)
+        self.side_menu.addWidget(self.progress, 3, 0, 1, 0)
 
         # INFO - Widgets
         self.side_menu.addWidget(self.info_divider, 4, 0, 1, 2)
@@ -268,13 +284,23 @@ class BoundingBoxWindow(QWidget):
         self.show()
         # feed
         self.feed = BoundingBox(self)
+        self.feed.progress_update.connect(lambda e: self.progress.setValue(int(e)))
+
+        # other
+        self.hook = keyboard.on_press(self.keyboard_listener)
 
     def __del__(self):
         self.feed.stop()
 
+    def keyboard_listener(self, event):
+        if event.event_type == 'down':
+            if event.name == 'n':
+                self.feed.next_frame()
+            elif event.name == 'left':
+                pass
+
     def set_mouse_position(self, event):
         self.feed.mouse = [event.x(), event.y()]
-        print('working')
         self.feed.update = True
 
     def set_start_position(self, event):
@@ -284,33 +310,28 @@ class BoundingBoxWindow(QWidget):
 
     def set_end_position(self, event):
         self.feed.p2 = [min(max(event.x(), 0), self.feed.shape[1]), min(max(event.y(), 0), self.feed.shape[0])]
-        # self.point_2.setText(f'Point B: ({event.x()}, {event.y()})')
+        # ==self.point_2.setText(f'Point B: ({event.x()}, {event.y()})')
         self.feed.update = True
 
     def start(self):
         self.feed.start()
         self.feed.ImageUpdate.connect(self.update_image)
+        self.feed.next_frame()
 
     def update_image(self, image):
         self.preview.setPixmap(QPixmap.fromImage(image))
 
     def select_file(self):
-        file_dir = QFileDialog.getOpenFileName(self, 'Select File', 'C:\\', "Image files (*.png)")
+        file_dir = QFileDialog.getOpenFileName(self, 'Select File', expanduser('~'), "Image files (*.mp4)")
         if file_dir[0] == '': return
         self.file.setText(file_dir[0].split('/')[-1])
         self.file.setToolTip(file_dir[0])
-        self.feed.image = cv2.imread(file_dir[0])
-        self.feed.image = cv2.cvtColor(self.feed.image, cv2.COLOR_BGR2RGB)
-        self.feed.shape = self.feed.image.shape
+        # self.feed.image = cv2.imread(file_dir[0])
+        # self.feed.image = cv2.cvtColor(self.feed.image, cv2.COLOR_BGR2RGB)
+        # self.feed.shape = self.feed.image.shape
+        print(file_dir[0])
+        self.feed.set_video(file_dir[0])
         self.start()
-        try:
-            image = cv2.imread(file_dir[0])
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            self.preview.setPixmap(QPixmap.fromImage(
-                QImage(image.data, image.shape[1], image.shape[0], QImage.Format_RGB888).scaled(640, 480,
-                                                                                                Qt.KeepAspectRatio)))
-        except Exception as error:
-            print(error)
 
     def select_dir(self):
         input_dir = QFileDialog.getExistingDirectory(None, 'Select a folder:', expanduser("~"))
@@ -320,11 +341,96 @@ class BoundingBoxWindow(QWidget):
 
 class BoundingBox(QThread):
     ImageUpdate = pyqtSignal(QImage)
+    progress_update = pyqtSignal(object)
+
+    def __init__(self, parent: BoundingBoxWindow):
+        super(BoundingBox, self).__init__(parent)
+        self.parent: BoundingBoxWindow = parent
+        self.is_active = False
+        self.update = False
+        self.video: cv2.VideoCapture = None
+        self.image = None
+        # bounding box attributes
+        self.p1: list = [0, 0]
+        self.p2: list = [0, 0]
+        self.mouse: list = [0, 0]
+        self.shape: list = [0, 0]
+        self.font = cv2.FONT_HERSHEY_SIMPLEX
+        self.index = 0
+        self.video_count = 0
+        #
+
+    def set_video(self, file: str):
+        if is_video_file(file):
+            self.video = cv2.VideoCapture(file)
+            self.shape = [int(self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(self.video.get(cv2.CAP_PROP_FRAME_WIDTH)), 3]
+            self.video_count = self.video.get(cv2.CAP_PROP_FRAME_COUNT)
+
+    def next_frame(self):
+        if self.video is not None:
+            ret, image = self.video.read()
+            self.index += 1
+            if ret:
+                self.progress_update.emit(int((100 / self.video_count) * self.index))
+                self.image = image
+                self.update = True
+            else:
+                self.video.release()
+                self.video = None
+                self.image = np.full((self.shape[0], self.shape[1], self.shape[2]), 255, dtype=np.uint8)
+                self.image = cv2.copyMakeBorder(self.image, 4, 4, 4, 4, cv2.BORDER_CONSTANT, None, value=[150, 150, 150])
+                self.image = cv2.putText(img=self.image, text='No Video!', org=(20, 80), fontFace=self.font, fontScale=2, color=[0, 0, 0])
+                qt_image = QImage(self.image.data, self.image.shape[1], self.image.shape[0],
+                                  QImage.Format_RGB888)
+                self.ImageUpdate.emit(qt_image.scaled(640, 480, Qt.KeepAspectRatio))
+                return
+
+    def run(self):
+        self.is_active = True
+        image = None
+        while self.is_active:
+            if not self.update or self.image is None:
+                continue
+
+            frame = cv2.copyTo(self.image, None, image)
+            frame = cv2.cvtColor(src=frame, dst=frame, code=cv2.COLOR_BGR2RGB)
+            image = cv2.rectangle(frame, self.p1, self.p2, color=[255, 0, 0], thickness=2)
+            for point in [self.p1, self.p2]:
+                image = cv2.putText(img=image, text=f'({point[0]},{point[1]})', org=(point[0], point[1] + 20),
+                                    fontFace=self.font, fontScale=0.5, thickness=1, color=[255, 255, 255])
+                image = cv2.circle(image, point, radius=3, color=[0, 255, 0], thickness=3)
+                image = cv2.line(img=image, pt1=[self.mouse[0], 0], pt2=[self.mouse[0], self.shape[0]],
+                                 color=[255, 255, 255])
+            """
+            if point is self.p1:
+                image = cv2.line(image, point, (point[0], self.shape[0]), color=[255,255,255])
+                image = cv2.line(image, point, (self.shape[1], point[1]), color=[255,255,255])
+            else:
+                image = cv2.line(image, point, (point[0], 0), color=[255,255,255])
+                image = cv2.line(image, point, (0, point[1]), color=[255,255,255])
+            """
+            # image = cv2.line(img=image, pt1=[0, self.mouse[1]], pt2=[self.shape[1], self.mouse[1]],
+            #                 color=[255, 255, 255])
+            # MASK
+
+            # MASK END
+            qt_image = QImage(frame.data, frame.shape[1], frame.shape[0],
+                              QImage.Format_RGB888)
+            qt_image = qt_image.scaled(640, 480, Qt.KeepAspectRatio)
+            self.ImageUpdate.emit(qt_image)
+            self.update = False
+
+    def stop(self):
+        self.is_active = False
+
+
+class _BoundingBox(QThread):
+    ImageUpdate = pyqtSignal(QImage)
 
     def __init__(self, parent: BoundingBoxWindow):
         super().__init__(parent)
         self.is_active = False
-        self.image_file = parent.file
+        self.file = parent.file.toolTip()
         self.p1: list = [0, 0]
         self.p2: list = [0, 0]
         self.mouse: list = [0, 0]
@@ -332,6 +438,13 @@ class BoundingBox(QThread):
         self.image = None
         self.update = False
         self.font = cv2.FONT_HERSHEY_SIMPLEX
+        self.video = None
+
+    def set_video(self, path: str):
+        if is_video_file(path):
+            self.video = path
+        else:
+            print('[WARNING]: error')
 
     def run(self):
         self.is_active = True
@@ -352,8 +465,10 @@ class BoundingBox(QThread):
                     image = cv2.line(image, point, (point[0], 0), color=[255,255,255])
                     image = cv2.line(image, point, (0, point[1]), color=[255,255,255])
                 """
-                image = cv2.line(img=image, pt1=[self.mouse[0], 0], pt2=[self.mouse[0], self.shape[0]], color=[255, 255, 255])
-                image = cv2.line(img=image, pt1=[0, self.mouse[1]], pt2=[self.shape[1], self.mouse[1]], color=[255, 255, 255])
+                image = cv2.line(img=image, pt1=[self.mouse[0], 0], pt2=[self.mouse[0], self.shape[0]],
+                                 color=[255, 255, 255])
+                image = cv2.line(img=image, pt1=[0, self.mouse[1]], pt2=[self.shape[1], self.mouse[1]],
+                                 color=[255, 255, 255])
             # MASK
 
             # MASK END
@@ -389,9 +504,9 @@ class RecordWindow(QWidget):
         self.main_menu.setContentsMargins(0, 0, 0, 0)
         self.main_menu.setSpacing(0)
 
-        self.info_menu = QGridLayout(self.side_frame)
-        self.info_menu.setAlignment(Qt.AlignBottom)
-        self.info_menu.addWidget(QPushButton('Test'))
+        # self.info_menu = QGridLayout(self.side_frame)
+        # self.info_menu.setAlignment(Qt.AlignBottom)
+        # self.info_menu.addWidget(QPushButton('Test'))
 
         # row 0
         self.file_txt = QLabel('File Name:')
@@ -400,7 +515,7 @@ class RecordWindow(QWidget):
 
         # row 1
         self.folder_txt = QLabel('Folder Path:')
-        self.folder = QPushButton('C:/')
+        self.folder = QPushButton(expanduser('~').split('/')[-1])
         self.folder.clicked.connect(self.select_dir)
         self.folder.setShortcut('Ctrl+O')
 
@@ -593,6 +708,7 @@ class LiveFeed(QThread):
 
 
 def main():
+    faulthandler.enable()
     app = QApplication(sys.argv)
     app.setStyle('Breeze')
     _app = MainWindow()

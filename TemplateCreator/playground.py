@@ -1,43 +1,26 @@
-import cv2
 import sys
-import numpy as np
-from PyQt5 import Qt
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+
+from PyQt5 import QtCore, QtWidgets
+import keyboard
+from PyQt5.QtWidgets import QApplication
 
 
-class MainWindow(QMainWindow):
-    def __init__(self, parent=None):
-        super(MainWindow, self).__init__(parent)
-        self.title = 'Temporary'
-        self.geometry = (1280, 480, 670, 380)
-        self.setCentralWidget(TemplateWindow(self))
+class KeyGrabber(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+        self.hook = keyboard.on_press(self.keyboardEventReceived)
 
-
-class TemplateWindow(QWidget):
-    def __init__(self, parent: MainWindow):
-        super(TemplateWindow, self).__init__(parent)
-
-        self.side_frame = QFrame(self)
-        self.side_frame.setStyleSheet('QFrame{background-color:rgb(195, 130, 127);}')
-
-        self.side_menu = QGridLayout(self.side_frame)
-        self.side_menu.setAlignment(Qt.AlignTop | Qt.AlignBottom)
-
-        self.side_info = QGridLayout(self.side_frame)
-        self.side_info.setAlignment(Qt.AlignBottom)
-
-        # SIDE WIDGETS
-        self.side_menu.addWidget(QPushButton('Play'))
-        self.side_menu.addWidget(QPushButton('Play'))
-        self.side_info.addWidget(QPushButton('Cancel'))
-
+    def keyboardEventReceived(self, event):
+        if event.event_type == 'down':
+            if event.name == 'f3':
+                print('F3 pressed')
+            elif event.name == 'f4':
+                print('F4 pressed')
 
 def main():
     app = QApplication(sys.argv)
     app.setStyle('Breeze')
-    _app = MainWindow()
+    _app = KeyGrabber()
     _app.show()
     sys.exit(app.exec_())
 
