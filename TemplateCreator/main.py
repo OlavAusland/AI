@@ -209,7 +209,13 @@ class TemplateWindow(QWidget):
 
 
 class BoundingBoxWindow(QWidget):
+    start_point_signal = pyqtSignal(list)
+    end_point_signal = pyqtSignal(list)
+    mouse_point_signal = pyqtSignal(list)
+    update_signal = pyqtSignal(bool)
+
     def __init__(self, parent):
+
         super(BoundingBoxWindow, self).__init__(parent)
         self.splitter = QSplitter(Qt.Horizontal)
         self.container = QHBoxLayout(self)
@@ -229,8 +235,10 @@ class BoundingBoxWindow(QWidget):
         self.preview = QLabel(self.main_frame)
         self.bounding_box_preview = QLabel(self.main_frame)
 
+        self.preview.setMouseTracking(True)
+        self.preview.mouseMoveEvent = self.set_mouse_position
         self.preview.mousePressEvent = self.set_start_position
-        self.preview.mouseMoveEvent = self.set_end_position
+        # self.preview.mouseReleaseEvent = self.set_end_position
 
         # side menu
         self.file_text = QLabel('Video File:')
@@ -300,18 +308,29 @@ class BoundingBoxWindow(QWidget):
                 pass
 
     def set_mouse_position(self, event):
-        self.feed.mouse = [event.x(), event.y()]
-        self.feed.update = True
+        if event.buttons() & Qt.LeftButton:
+            end_point = [min(max(event.x(), 0), self.feed.shape[1]), min(max(event.y(), 0), self.feed.shape[0])]
+            self.end_point_signal.emit(end_point)
+        mouse_pos = [event.x(), event.y()]
+        self.mouse_point_signal.emit(mouse_pos)
+        # self.feed.mouse = [event.x(), event.y()]
+        # self.feed.update = True
+        self.update_signal.emit(True)
 
     def set_start_position(self, event):
-        self.feed.p1 = [max(event.x(), 0), max(event.y(), 0)]
+        # self.feed.p1 = [max(event.x(), 0), max(event.y(), 0)]
+        start_pos = [max(event.x(), 0), max(event.y(), 0)]
+        self.start_point_signal.emit(start_pos)
         # self.point_1.setText(f'Point A: ({event.x()}, {event.y()})')
-        self.feed.update = True
+        # self.feed.update = True
+        self.update_signal.emit(True)
 
     def set_end_position(self, event):
-        self.feed.p2 = [min(max(event.x(), 0), self.feed.shape[1]), min(max(event.y(), 0), self.feed.shape[0])]
+        # self.feed.p2 = [min(max(event.x(), 0), self.feed.shape[1]), min(max(event.y()n, 0), self.feed.shape[0])]
+        self.end_point_signal.emit([min(max(event.x(), 0), self.feed.shape[1]), min(max(event.y(), 0), self.feed.shape[0])])
         # ==self.point_2.setText(f'Point B: ({event.x()}, {event.y()})')
-        self.feed.update = True
+        # self.feed.update = True
+        self.update_signal.emit(True)
 
     def start(self):
         self.feed.start()
@@ -337,9 +356,10 @@ class BoundingBoxWindow(QWidget):
         input_dir = QFileDialog.getExistingDirectory(None, 'Select a folder:', expanduser("~"))
         self.output_dir.setText(input_dir.split('/')[-1])
         self.output_dir.setToolTip(input_dir)
+        self.feed.path = self.output_dir.toolTip()
 
 
-class BoundingBox(QThread):
+class BoundingBox(QtCore.QThread):
     ImageUpdate = pyqtSignal(QImage)
     progress_update = pyqtSignal(object)
 
@@ -350,6 +370,8 @@ class BoundingBox(QThread):
         self.update = False
         self.video: cv2.VideoCapture = None
         self.image = None
+        self.path: str = expanduser("~")
+        print(self.path)
         # bounding box attributes
         self.p1: list = [0, 0]
         self.p2: list = [0, 0]
@@ -358,12 +380,22 @@ class BoundingBox(QThread):
         self.font = cv2.FONT_HERSHEY_SIMPLEX
         self.index = 0
         self.video_count = 0
-        #
+        # py signals
+        self.parent.start_point_signal.connect(lambda e: self._set_p1(list(e)))
+        self.parent.end_point_signal.connect(lambda e: self._set_p2(list(e)))
+        self.parent.mouse_point_signal.connect(lambda e: self._set_mouse(list(e)))
+        self.parent.update_signal.connect(lambda e: self._set_update(bool(e)))
+
+    def _set_p1(self, val: list): self.p1 = val
+    def _set_p2(self, val: list): self.p2 = val
+    def _set_mouse(self, val: list): self.mouse = val
+    def _set_update(self, val: bool): self.update = val
 
     def set_video(self, file: str):
         if is_video_file(file):
             self.video = cv2.VideoCapture(file)
-            self.shape = [int(self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(self.video.get(cv2.CAP_PROP_FRAME_WIDTH)), 3]
+            self.shape = [int(self.video.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(self.video.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                          3]
             self.video_count = self.video.get(cv2.CAP_PROP_FRAME_COUNT)
 
     def next_frame(self):
@@ -378,11 +410,15 @@ class BoundingBox(QThread):
                 self.video.release()
                 self.video = None
                 self.image = np.full((self.shape[0], self.shape[1], self.shape[2]), 255, dtype=np.uint8)
-                self.image = cv2.copyMakeBorder(self.image, 4, 4, 4, 4, cv2.BORDER_CONSTANT, None, value=[150, 150, 150])
-                self.image = cv2.putText(img=self.image, text='No Video!', org=(20, 80), fontFace=self.font, fontScale=2, color=[0, 0, 0])
+                self.image = cv2.copyMakeBorder(self.image, 4, 4, 4, 4, cv2.BORDER_CONSTANT, None,
+                                                value=[150, 150, 150])
+                self.image = cv2.putText(img=self.image, text='No Video!', org=(20, 80), fontFace=self.font,
+                                         fontScale=2, color=[0, 0, 0])
                 qt_image = QImage(self.image.data, self.image.shape[1], self.image.shape[0],
                                   QImage.Format_RGB888)
                 self.ImageUpdate.emit(qt_image.scaled(640, 480, Qt.KeepAspectRatio))
+                self.progress_update.emit(0)
+                self.stop()
                 return
 
     def run(self):
@@ -393,90 +429,24 @@ class BoundingBox(QThread):
                 continue
 
             frame = cv2.copyTo(self.image, None, image)
+            cv2.imwrite(f'{self.path}/[{self.p1[0], self.p1[1]}, {self.p2[0], self.p2[1]}].png', frame)
             frame = cv2.cvtColor(src=frame, dst=frame, code=cv2.COLOR_BGR2RGB)
+
+            frame = cv2.line(img=frame, pt1=[self.mouse[0], 0], pt2=[self.mouse[0], self.shape[0]],
+                             color=[255, 255, 255])
+
+            frame = cv2.line(img=frame, pt1=[0, self.mouse[1]], pt2=[self.shape[1], self.mouse[1]],
+                             color=[255, 255, 255])
+
             image = cv2.rectangle(frame, self.p1, self.p2, color=[255, 0, 0], thickness=2)
             for point in [self.p1, self.p2]:
                 image = cv2.putText(img=image, text=f'({point[0]},{point[1]})', org=(point[0], point[1] + 20),
                                     fontFace=self.font, fontScale=0.5, thickness=1, color=[255, 255, 255])
                 image = cv2.circle(image, point, radius=3, color=[0, 255, 0], thickness=3)
-                image = cv2.line(img=image, pt1=[self.mouse[0], 0], pt2=[self.mouse[0], self.shape[0]],
-                                 color=[255, 255, 255])
-            """
-            if point is self.p1:
-                image = cv2.line(image, point, (point[0], self.shape[0]), color=[255,255,255])
-                image = cv2.line(image, point, (self.shape[1], point[1]), color=[255,255,255])
-            else:
-                image = cv2.line(image, point, (point[0], 0), color=[255,255,255])
-                image = cv2.line(image, point, (0, point[1]), color=[255,255,255])
-            """
-            # image = cv2.line(img=image, pt1=[0, self.mouse[1]], pt2=[self.shape[1], self.mouse[1]],
-            #                 color=[255, 255, 255])
-            # MASK
 
-            # MASK END
-            qt_image = QImage(frame.data, frame.shape[1], frame.shape[0],
-                              QImage.Format_RGB888)
+            qt_image = QImage(frame.data, frame.shape[1], frame.shape[0], QImage.Format_RGB888)
             qt_image = qt_image.scaled(640, 480, Qt.KeepAspectRatio)
             self.ImageUpdate.emit(qt_image)
-            self.update = False
-
-    def stop(self):
-        self.is_active = False
-
-
-class _BoundingBox(QThread):
-    ImageUpdate = pyqtSignal(QImage)
-
-    def __init__(self, parent: BoundingBoxWindow):
-        super().__init__(parent)
-        self.is_active = False
-        self.file = parent.file.toolTip()
-        self.p1: list = [0, 0]
-        self.p2: list = [0, 0]
-        self.mouse: list = [0, 0]
-        self.shape: tuple = (0, 0)
-        self.image = None
-        self.update = False
-        self.font = cv2.FONT_HERSHEY_SIMPLEX
-        self.video = None
-
-    def set_video(self, path: str):
-        if is_video_file(path):
-            self.video = path
-        else:
-            print('[WARNING]: error')
-
-    def run(self):
-        self.is_active = True
-        image = None
-        while self.is_active:
-            if not self.update: continue
-            image = cv2.copyTo(self.image, None, image)
-            image = cv2.rectangle(image, self.p1, self.p2, color=[255, 0, 0], thickness=2)
-            for point in [self.p1, self.p2]:
-                image = cv2.putText(img=image, text=f'({point[0]},{point[1]})', org=(point[0], point[1] + 20),
-                                    fontFace=self.font, fontScale=0.5, thickness=1, color=[255, 255, 255])
-                image = cv2.circle(image, point, radius=3, color=[0, 255, 0], thickness=3)
-                """
-                if point is self.p1:
-                    image = cv2.line(image, point, (point[0], self.shape[0]), color=[255,255,255])
-                    image = cv2.line(image, point, (self.shape[1], point[1]), color=[255,255,255])
-                else:
-                    image = cv2.line(image, point, (point[0], 0), color=[255,255,255])
-                    image = cv2.line(image, point, (0, point[1]), color=[255,255,255])
-                """
-                image = cv2.line(img=image, pt1=[self.mouse[0], 0], pt2=[self.mouse[0], self.shape[0]],
-                                 color=[255, 255, 255])
-                image = cv2.line(img=image, pt1=[0, self.mouse[1]], pt2=[self.shape[1], self.mouse[1]],
-                                 color=[255, 255, 255])
-            # MASK
-
-            # MASK END
-
-            qt_image = QImage(image.data, image.shape[1], image.shape[0],
-                              QImage.Format_RGB888)
-            Pic = qt_image.scaled(640, 480, Qt.KeepAspectRatio)
-            self.ImageUpdate.emit(Pic)
             self.update = False
 
     def stop(self):
@@ -713,7 +683,7 @@ def main():
     app.setStyle('Breeze')
     _app = MainWindow()
     _app.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == '__main__':
