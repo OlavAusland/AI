@@ -2,31 +2,22 @@ import sys
 from os.path import expanduser
 import faulthandler
 
-import numpy
 from PyQt5 import QtCore, Qt
 from PyQt5.QtGui import *
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
-from PyQt5.QtMultimediaWidgets import QVideoWidget
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 import cv2
 import numpy as np
-import requests
-import urllib.request
-import copy as cp
-from scipy.spatial.distance import euclidean
 import math
-import imghdr
 import keyboard
+
+
+OS = sys.platform
 
 
 def read_qss(filepath: str):
     with open(filepath, 'r') as style:
         return style.read()
-
-
-def dist(a: tuple, b: tuple) -> float:
-    return math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2)
 
 
 def is_video_file(path: str):
@@ -44,11 +35,19 @@ def is_video_file(path: str):
 class MainWindow(QMainWindow):
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent)
+        # ---------------------------------------
+        self.stack = QStackedWidget(self)
+        self.stack.addWidget(RecordWindow(self))
+        self.stack.addWidget(TemplateWindow(self))
+        self.stack.addWidget(BoundingBoxWindow(self))
+        # ---------------------------------------
         self.title = 'Template Creator'
         self.geometry = (1280, 480, 670, 380)
         # ---------------------------------------
         self.init_header()
+        self.setCentralWidget(self.stack)
         # ---------------------------------------
+        self.show()
 
     def init_header(self):
         self.setWindowTitle(self.title)
@@ -63,17 +62,17 @@ class MainWindow(QMainWindow):
 
         record_btn = QAction('Record Video', self)
         record_btn.setShortcut('Ctrl+R')
-        record_btn.triggered.connect(self.set_record)
+        record_btn.triggered.connect(lambda: self.set_window(0))
         view_menu.addAction(record_btn)
 
         template_btn = QAction('Template', self)
         template_btn.setShortcut('Ctrl+T')
-        template_btn.triggered.connect(self.set_template)
+        template_btn.triggered.connect(lambda: self.set_window(1))
         view_menu.addAction(template_btn)
 
         bounding_box_btn = QAction('Bounding Box', self)
         bounding_box_btn.setShortcut('Ctrl+B')
-        bounding_box_btn.triggered.connect(self.set_bounding_box)
+        bounding_box_btn.triggered.connect(lambda: self.set_window(2))
         view_menu.addAction(bounding_box_btn)
 
         home_btn = QAction('Home', self)
@@ -103,6 +102,10 @@ class MainWindow(QMainWindow):
     def set_bounding_box(self):
         self.setCentralWidget(BoundingBoxWindow(self))
         self.setWindowTitle('Template Creator - Bounding Box')
+
+    def set_window(self, index):
+        self.stack.setCurrentIndex(index)
+
 
 
 class TemplateWindow(QWidget):
@@ -143,6 +146,7 @@ class TemplateWindow(QWidget):
 
         self.output_text = QLabel('Output Folder:')
         self.out_folder = QPushButton(expanduser('~').split('/')[-1])
+        self.out_folder.setToolTip(expanduser("~"))
         self.out_folder.clicked.connect(self.select_folder)
         self.out_folder.setShortcut('Ctrl+O')
 
@@ -171,7 +175,7 @@ class TemplateWindow(QWidget):
         self.video = None
         self.preview = QLabel()
         self.progress = QProgressBar()
-        self.progress.setValue(58)
+        self.progress.setValue(0)
 
         self.main_menu.addWidget(self.preview)
         self.main_menu.addWidget(self.progress)
@@ -234,6 +238,7 @@ class BoundingBoxWindow(QWidget):
         # main menu
         self.preview = QLabel(self.main_frame)
         self.bounding_box_preview = QLabel(self.main_frame)
+        self.preview.setStyleSheet('background-color:black;')
 
         self.preview.setMouseTracking(True)
         self.preview.mouseMoveEvent = self.set_mouse_position
@@ -255,6 +260,7 @@ class BoundingBoxWindow(QWidget):
         self.prev_btn = QPushButton('previous')
         self.next_btn = QPushButton('next')
         self.next_btn.clicked.connect(lambda: self.feed.next_frame())
+        self.next_btn.setShortcut('n')
         # progress
         self.progress = QProgressBar()
         self.progress.setValue(0)
@@ -295,7 +301,8 @@ class BoundingBoxWindow(QWidget):
         self.feed.progress_update.connect(lambda e: self.progress.setValue(int(e)))
 
         # other
-        self.hook = keyboard.on_press(self.keyboard_listener)
+        if OS not in ['linux', 'linux2']:
+            self.hook = keyboard.on_press(self.keyboard_listener)
 
     def __del__(self):
         self.feed.stop()
@@ -486,6 +493,8 @@ class RecordWindow(QWidget):
         # row 1
         self.folder_txt = QLabel('Folder Path:')
         self.folder = QPushButton(expanduser('~').split('/')[-1])
+        self.folder.setToolTip(expanduser('~'))
+
         self.folder.clicked.connect(self.select_dir)
         self.folder.setShortcut('Ctrl+O')
 
@@ -590,11 +599,13 @@ class VideoExtractor(QThread):
 
     def __init__(self, parent: TemplateWindow):
         super().__init__(parent)
+        self.parent: TemplateWindow = parent
         self.cap: cv2.VideoCapture = parent.video
         self.category: str = parent.category.text()
-        self.path: str = parent.folder_txt
+        self.path: str = parent.out_folder.toolTip()
         self.is_active: bool = False
         self.idx: int = 0
+        self.frame_count = self.cap.get(cv2.CAP_PROP_FRAME_COUNT)
 
     def run(self):
         self.is_active = True
@@ -607,6 +618,8 @@ class VideoExtractor(QThread):
             else:
                 self.is_active = False
             self.idx += 1
+            self.parent.progress.setValue(int())
+            self.parent.progress.setValue(int((100 / self.frame_count) * self.idx))
         self.cap.release()
         print('[INFO]: Finished!')
 
@@ -620,7 +633,7 @@ class LiveFeed(QThread):
     def __init__(self, parent):
         super().__init__(parent)
         try:
-            self.cap = cv2.VideoCapture(0)
+            self.cap: cv2.VideoCapture = cv2.VideoCapture()
             self.path = parent.folder.toolTip()
             self.filename = parent.filename.text()
             self.is_active = False
@@ -641,13 +654,12 @@ class LiveFeed(QThread):
 
     def run(self):
         self.is_active = True
-
         self.cap = cv2.VideoCapture(0)
         w = self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         h = self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        fourcc = cv2.VideoWriter_fourcc(*'DIVX')
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(f'{self.path}/{self.filename}', fourcc, 30.0, (int(w), int(h)))
-        if not self.cap.isOpened(): return
+        if self.cap is None:return
         while self.is_active:
             ret, self.frame = self.cap.read()
             if ret:
